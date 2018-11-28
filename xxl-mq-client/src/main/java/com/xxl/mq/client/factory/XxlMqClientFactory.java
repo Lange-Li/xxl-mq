@@ -6,14 +6,13 @@ import com.xxl.mq.client.consumer.annotation.MqConsumer;
 import com.xxl.mq.client.consumer.registry.ConsumerRegistryHelper;
 import com.xxl.mq.client.consumer.thread.ConsumerThread;
 import com.xxl.mq.client.message.XxlMqMessage;
+import com.xxl.mq.client.registry.CommonServiceRegistry;
 import com.xxl.rpc.registry.ServiceRegistry;
-import com.xxl.rpc.registry.impl.ZkServiceRegistry;
 import com.xxl.rpc.remoting.invoker.XxlRpcInvokerFactory;
 import com.xxl.rpc.remoting.invoker.call.CallType;
 import com.xxl.rpc.remoting.invoker.reference.XxlRpcReferenceBean;
 import com.xxl.rpc.remoting.net.NetEnum;
 import com.xxl.rpc.serialize.Serializer;
-import com.xxl.rpc.util.Environment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,19 +33,11 @@ public class XxlMqClientFactory  {
 
     // ---------------------- param  ----------------------
 
-    private String zkaddress;
-    private String zkdigest;
-    private String env;
+    private String adminAddress;
     private List<IMqConsumer> consumerList;
 
-    public void setZkaddress(String zkaddress) {
-        this.zkaddress = zkaddress;
-    }
-    public void setZkdigest(String zkdigest) {
-        this.zkdigest = zkdigest;
-    }
-    public void setEnv(String env) {
-        this.env = env;
+    public void setAdminAddress(String adminAddress) {
+        this.adminAddress = adminAddress;
     }
     public void setConsumerList(List<IMqConsumer> consumerList) {
         this.consumerList = consumerList;
@@ -120,10 +111,8 @@ public class XxlMqClientFactory  {
 
     public void startBrokerService() {
         // init XxlRpcInvokerFactory
-        xxlRpcInvokerFactory = new XxlRpcInvokerFactory(ZkServiceRegistry.class, new HashMap<String, String>(){{
-            put(Environment.ZK_ADDRESS, zkaddress);
-            put(Environment.ZK_DIGEST, zkdigest);
-            put(Environment.ENV, "xxl-mq#"+env);
+        xxlRpcInvokerFactory = new XxlRpcInvokerFactory(CommonServiceRegistry.class, new HashMap<String, String>(){{
+            put(CommonServiceRegistry.REGISTRY_CENTER, adminAddress);
         }});
         try {
             xxlRpcInvokerFactory.start();
@@ -132,12 +121,12 @@ public class XxlMqClientFactory  {
         }
 
         // init ConsumerRegistryHelper
-        ServiceRegistry serviceRegistry = XxlRpcInvokerFactory.getServiceRegistry();
+        ServiceRegistry serviceRegistry = xxlRpcInvokerFactory.getServiceRegistry();
         consumerRegistryHelper = new ConsumerRegistryHelper(serviceRegistry);
 
         // init IXxlMqBroker
         xxlMqBroker = (IXxlMqBroker) new XxlRpcReferenceBean(NetEnum.NETTY, Serializer.SerializeEnum.HESSIAN.getSerializer(), CallType.SYNC,
-                IXxlMqBroker.class, null, 10000, null, null, null).getObject();
+                IXxlMqBroker.class, null, 10000, null, null, null, serviceRegistry).getObject();
 
         // async + mult, addMessages
         for (int i = 0; i < 3; i++) {
@@ -163,9 +152,19 @@ public class XxlMqClientFactory  {
                                 xxlMqBroker.addMessages(messageList);
                             }
                         } catch (Exception e) {
-                            logger.error(e.getMessage(), e);
+                            if (!XxlMqClientFactory.clientFactoryPoolStoped) {
+                                logger.error(e.getMessage(), e);
+                            }
                         }
                     }
+
+                    // finally total
+                    List<XxlMqMessage> otherMessageList = new ArrayList<>();
+                    int drainToNum = newMessageQueue.drainTo(otherMessageList);
+                    if (drainToNum> 0) {
+                        xxlMqBroker.addMessages(otherMessageList);
+                    }
+
                 }
             });
         }
@@ -190,13 +189,23 @@ public class XxlMqClientFactory  {
                                     messageList.addAll(otherMessageList);
                                 }
 
-                                // save
+                                // callback
                                 xxlMqBroker.callbackMessages(messageList);
                             }
                         } catch (Exception e) {
-                            logger.error(e.getMessage(), e);
+                            if (!XxlMqClientFactory.clientFactoryPoolStoped) {
+                                logger.error(e.getMessage(), e);
+                            }
                         }
                     }
+
+                    // finally total
+                    List<XxlMqMessage> otherMessageList = new ArrayList<>();
+                    int drainToNum = callbackMessageQueue.drainTo(otherMessageList);
+                    if (drainToNum> 0) {
+                        xxlMqBroker.callbackMessages(otherMessageList);
+                    }
+
                 }
             });
         }

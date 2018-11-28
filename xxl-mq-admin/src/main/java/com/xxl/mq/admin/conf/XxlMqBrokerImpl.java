@@ -1,18 +1,18 @@
 package com.xxl.mq.admin.conf;
 
+import com.xxl.mq.admin.core.model.XxlCommonRegistryData;
 import com.xxl.mq.admin.core.model.XxlMqTopic;
 import com.xxl.mq.admin.dao.IXxlMqMessageDao;
 import com.xxl.mq.admin.dao.IXxlMqTopicDao;
 import com.xxl.mq.admin.service.IXxlMqTopicService;
+import com.xxl.mq.admin.service.impl.XxlCommonRegistryServiceImpl;
 import com.xxl.mq.client.broker.IXxlMqBroker;
 import com.xxl.mq.client.message.XxlMqMessage;
 import com.xxl.mq.client.message.XxlMqMessageStatus;
 import com.xxl.mq.client.util.LogHelper;
-import com.xxl.rpc.registry.impl.ZkServiceRegistry;
 import com.xxl.rpc.remoting.net.NetEnum;
 import com.xxl.rpc.remoting.provider.XxlRpcProviderFactory;
 import com.xxl.rpc.serialize.Serializer;
-import com.xxl.rpc.util.Environment;
 import com.xxl.rpc.util.IpUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,16 +45,7 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
     @Value("${xxl-mq.rpc.remoting.port}")
     private int port;
 
-    @Value("${xxl-mq.rpc.registry.zk.zkaddress}")
-    private String zkaddress;
-
-    @Value("${xxl-mq.rpc.registry.zk.zkdigest}")
-    private String zkdigest;
-
-    @Value("${xxl-mq.rpc.registry.zk.env}")
-    private String env;
-
-    @Value("${xxl-mq.log.logretentiondays}")
+    @Value("${xxl.mq.log.logretentiondays}")
     private int logretentiondays;
 
 
@@ -128,7 +119,9 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
                                 xxlMqMessageDao.save(messageList);
                             }
                         } catch (Exception e) {
-                            logger.error(e.getMessage(), e);
+                            if (!executorStoped) {
+                                logger.error(e.getMessage(), e);
+                            }
                         }
                     }
 
@@ -179,7 +172,9 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
                             }
 
                         } catch (Exception e) {
-                            logger.error(e.getMessage(), e);
+                            if (!executorStoped) {
+                                logger.error(e.getMessage(), e);
+                            }
                         }
                     }
 
@@ -212,7 +207,9 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
                             logger.info("xxl-mq, retry message, count:{}", count);
                         }
                     } catch (Exception e) {
-                        logger.error(e.getMessage(), e);
+                        if (!executorStoped) {
+                            logger.error(e.getMessage(), e);
+                        }
                     }
                     try {
                         // mult reset block message
@@ -222,13 +219,17 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
                             logger.info("xxl-mq, retry block message, count:{}", count);
                         }
                     } catch (Exception e) {
-                        logger.error(e.getMessage(), e);
+                        if (!executorStoped) {
+                            logger.error(e.getMessage(), e);
+                        }
                     }
                     try {
                         // sleep
                         TimeUnit.SECONDS.sleep(60);
                     } catch (Exception e) {
-                        logger.error(e.getMessage(), e);
+                        if (!executorStoped) {
+                            logger.error(e.getMessage(), e);
+                        }
                     }
                 }
             }
@@ -281,18 +282,26 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
                                             logger.error(">>>>>>>>>>> message monitor alarm email send error, topic:{}, failCount:{}", mqTopic.getTopic(), failCount);
                                         }
 
+
+                                        // TODO, custom alarm strategy, such as sms
+
+
                                     }
                                 }
                             }
                         }
                     } catch (Exception e) {
-                        logger.error(e.getMessage(), e);
+                        if (!executorStoped) {
+                            logger.error(e.getMessage(), e);
+                        }
                     }
                     try {
                         // sleep
                         TimeUnit.MINUTES.sleep(1);
                     } catch (Exception e) {
-                        logger.error(e.getMessage(), e);
+                        if (!executorStoped) {
+                            logger.error(e.getMessage(), e);
+                        }
                     }
                 }
             }
@@ -310,12 +319,16 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
                             int count = xxlMqMessageDao.cleanSuccessMessage(XxlMqMessageStatus.SUCCESS.name(), logretentiondays);
                             logger.info("xxl-mq, clean success message, count:{}", count);
                         } catch (Exception e) {
-                            logger.error(e.getMessage(), e);
+                            if (!executorStoped) {
+                                logger.error(e.getMessage(), e);
+                            }
                         }
                         try {
                             TimeUnit.DAYS.sleep(logretentiondays);
                         } catch (Exception e) {
-                            logger.error(e.getMessage(), e);
+                            if (!executorStoped) {
+                                logger.error(e.getMessage(), e);
+                            }
                         }
                     }
                 }
@@ -341,12 +354,16 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
                         }
 
                     } catch (Exception e) {
-                        logger.error(e.getMessage(), e);
+                        if (!executorStoped) {
+                            logger.error(e.getMessage(), e);
+                        }
                     }
                     try {
                         TimeUnit.MINUTES.sleep(1);
                     } catch (Exception e) {
-                        logger.error(e.getMessage(), e);
+                        if (!executorStoped) {
+                            logger.error(e.getMessage(), e);
+                        }
                     }
                 }
             }
@@ -354,6 +371,7 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
 
     }
     public void destroyThread(){
+        executorStoped = true;
         executorService.shutdownNow();
     }
 
@@ -363,13 +381,19 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
     private XxlRpcProviderFactory providerFactory;
 
     public void initServer() throws Exception {
+
+        // address, static registry
+        String ip = IpUtil.getIp();
+        String address = IpUtil.getIpPort(ip, port);
+        XxlCommonRegistryData xxlCommonRegistryData = new XxlCommonRegistryData();
+        xxlCommonRegistryData.setKey(IXxlMqBroker.class.getName());
+        xxlCommonRegistryData.setValue(address);
+        XxlCommonRegistryServiceImpl.staticRegistryData = xxlCommonRegistryData;
+
+
         // init server
         providerFactory = new XxlRpcProviderFactory();
-        providerFactory.initConfig(NetEnum.NETTY, Serializer.SerializeEnum.HESSIAN.getSerializer(), IpUtil.getIp(), port, null, ZkServiceRegistry.class, new HashMap<String, String>(){{
-            put(Environment.ZK_ADDRESS, zkaddress);
-            put(Environment.ZK_DIGEST, zkdigest);
-            put(Environment.ENV, "xxl-mq#"+env);
-        }});
+        providerFactory.initConfig(NetEnum.NETTY, Serializer.SerializeEnum.HESSIAN.getSerializer(), ip, port, null, null, null);
 
         // add server
         providerFactory.addService(IXxlMqBroker.class.getName(), null, this);
@@ -377,6 +401,7 @@ public class XxlMqBrokerImpl implements IXxlMqBroker, InitializingBean, Disposab
         // start server
         providerFactory.start();
     }
+
     public void destoryServer() throws Exception {
         // stop server
         if (providerFactory != null) {

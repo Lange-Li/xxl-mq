@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -34,7 +35,7 @@ public class ConsumerThread extends Thread {
         this.consumerHandler = consumerHandler;
         this.mqConsumer = consumerHandler.getClass().getAnnotation(MqConsumer.class);
 
-        uuid = IpUtil.getIp().concat("_").concat(String.valueOf(System.currentTimeMillis())).concat("_").concat(String.valueOf(this.hashCode()));
+        uuid = UUID.randomUUID().toString().replaceAll("-", "");
     }
 
     public MqConsumer getMqConsumer() {
@@ -47,13 +48,13 @@ public class ConsumerThread extends Thread {
     @Override
     public void run() {
 
-        int waitTim = 10;
+        int waitTim = 0;
 
         while (!XxlMqClientFactory.clientFactoryPoolStoped) {
             try {
                 // check active
                 ConsumerRegistryHelper.ActiveInfo activeInfo = XxlMqClientFactory.getConsumerRegistryHelper().isActice(this);
-                logger.info(">>>>>>>>>>> xxl-mq, consumer active check, topic:{}, group:{}, ActiveInfo={}", mqConsumer.topic(), mqConsumer.group(), activeInfo.toString());
+                logger.debug(">>>>>>>>>>> xxl-mq, consumer active check, topic:{}, group:{}, ActiveInfo={}", mqConsumer.topic(), mqConsumer.group(), activeInfo);
 
                 if (activeInfo != null) {
 
@@ -78,7 +79,11 @@ public class ConsumerThread extends Thread {
 
                             // lock message, for transaction
                             if (mqConsumer.transaction()) {
-                                String appendLog_lock = LogHelper.makeLog("锁定消息", ("消费者信息="+newActiveInfo.toString() ) );
+                                String appendLog_lock = LogHelper.makeLog(
+                                        "锁定消息",
+                                        ("消费者信息="+newActiveInfo.toString()
+                                                +"；<br>消费者IP="+IpUtil.getIp())
+                                );
                                 int lockRet = XxlMqClientFactory.getXxlMqBroker().lockMessage(msg.getId(), appendLog_lock);
                                 if (lockRet < 1) {
                                     continue;
@@ -123,7 +128,23 @@ public class ConsumerThread extends Thread {
                                 mqResult = new MqResult(MqResult.FAIL_CODE, errorMsg);
                             }
 
-                            String appendLog_consume = LogHelper.makeLog("消费消息", ("消费结果="+(mqResult.isSuccess()?"成功":"失败")+"；消费日志="+mqResult.getLog() ) );
+                            // log
+                            String appendLog_consume = null;
+                            if (mqConsumer.transaction()) {
+                                appendLog_consume = LogHelper.makeLog(
+                                        "消费消息",
+                                        ("消费结果="+(mqResult.isSuccess()?"成功":"失败")
+                                                +"；<br>消费日志="+mqResult.getLog())
+                                );
+                            } else {
+                                appendLog_consume = LogHelper.makeLog(
+                                        "消费消息",
+                                        ("消费结果="+(mqResult.isSuccess()?"成功":"失败")
+                                                +"；<br>消费者信息="+activeInfo.toString()
+                                                +"；<br>消费者IP="+IpUtil.getIp()
+                                                +"；<br>消费日志="+mqResult.getLog())
+                                );
+                            }
 
                             // callback
                             msg.setStatus(mqResult.isSuccess()? XxlMqMessageStatus.SUCCESS.name():XxlMqMessageStatus.FAIL.name());
@@ -134,19 +155,25 @@ public class ConsumerThread extends Thread {
                         }
 
                     } else {
-                        waitTim = (waitTim < 60) ? (waitTim + 10) : waitTim;
+                        waitTim = (waitTim+10)<=60?(waitTim+10):60;
                     }
+                } else {
+                    waitTim = 2;
                 }
 
             } catch (Exception e) {
-                logger.error(e.getMessage(), e);
+                if (!XxlMqClientFactory.clientFactoryPoolStoped) {
+                    logger.error(e.getMessage(), e);
+                }
             }
 
             // wait
             try {
                 TimeUnit.SECONDS.sleep(waitTim);
             } catch (Exception e) {
-                logger.error(e.getMessage(), e);
+                if (!XxlMqClientFactory.clientFactoryPoolStoped) {
+                    logger.error(e.getMessage(), e);
+                }
             }
 
         }
